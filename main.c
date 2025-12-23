@@ -1,6 +1,9 @@
+// gcc main.c encrypt.c decrypt.c -I"C:\vcpkg\installed\x64-windows\include" -L"C:\vcpkg\installed\x64-windows\lib" -lcrypto -lssl -lole32 -lshell32 -lcomctl32 -mwindows -o aescrypt.exe
+
 #include <windows.h>
 #include <shlobj.h>
 #include <commctrl.h>
+#include <shellapi.h>
 #include <stdio.h>
 #include <string.h>
 #include "encrypt.h"
@@ -9,8 +12,31 @@
 #pragma comment(lib, "comctl32.lib")
 
 #define MAX_KEY_LEN 32
+#define VERSION "1.0.0"
 
 HWND hwndPath, hwndKey, hwndJournal, hwndProgress;
+
+void print_help() {
+    MessageBox(NULL,
+        "AES Encryptor/Decryptor v" VERSION "\n\n"
+        "Utilisation:\n"
+        "  aescrypt.exe              Lance l'interface graphique\n"
+        "  aescrypt.exe -h           Affiche cette aide\n"
+        "  aescrypt.exe -v           Affiche la version\n\n"
+        "Description:\n"
+        "  Outil de chiffrement/dechiffrement AES pour dossiers entiers.\n"
+        "  Utilise AES-256 en mode CBC avec une cle de 32 octets.\n\n"
+        "Options:\n"
+        "  -h, --help                Affiche cette aide\n"
+        "  -v, --version             Affiche la version",
+        "Aide - AES Encryptor/Decryptor", MB_OK | MB_ICONINFORMATION);
+}
+
+void print_version() {
+    char version_msg[100];
+    sprintf(version_msg, "AES Encryptor/Decryptor v%s", VERSION);
+    MessageBox(NULL, version_msg, "Version", MB_OK | MB_ICONINFORMATION);
+}
 
 typedef struct {
     char folder[4096];
@@ -65,7 +91,7 @@ DWORD WINAPI process_thread(LPVOID lpParam) {
     else
         decrypt_directory_recursive_cb(params->folder, params->key, params->iv, callback);
 
-    MessageBox(NULL, "Operation terminee !", "Info", MB_OK);
+    MessageBox(NULL, "Operation terminee !", "Info", MB_RIGHT);
     free(params);
     return 0;
 }
@@ -82,18 +108,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             hwndPath = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER, 130, 10, 300, 20, hwnd, NULL, NULL, NULL);
             CreateWindow("BUTTON","Parcourir...", WS_VISIBLE|WS_CHILD, 440, 10, 100, 20, hwnd, (HMENU)1, NULL, NULL);
 
-            CreateWindow("STATIC", "Cle AES (32 octets) :", WS_VISIBLE|WS_CHILD, 10, 40, 120, 20, hwnd, NULL, NULL, NULL);
+            CreateWindow("STATIC", "Cle AES 32 :", WS_VISIBLE|WS_CHILD, 10, 40, 120, 20, hwnd, NULL, NULL, NULL);
             hwndKey = CreateWindow("EDIT", "", WS_VISIBLE|WS_CHILD|WS_BORDER|ES_AUTOHSCROLL, 130, 40, 300, 20, hwnd, NULL, NULL, NULL);
 
             CreateWindow("BUTTON","Chiffrer", WS_VISIBLE|WS_CHILD, 10, 70, 100, 30, hwnd, (HMENU)2, NULL, NULL);
             CreateWindow("BUTTON","Dechiffrer", WS_VISIBLE|WS_CHILD, 120, 70, 100, 30, hwnd, (HMENU)3, NULL, NULL);
+
+            CreateWindow("BUTTON","Aide", WS_VISIBLE|WS_CHILD, 400, 70, 50, 30, hwnd, (HMENU)4, NULL, NULL);
+            CreateWindow("BUTTON","Version", WS_VISIBLE|WS_CHILD, 470, 70, 70, 30, hwnd, (HMENU)5, NULL, NULL);
 
             hwndJournal = CreateWindow("LISTBOX","", WS_VISIBLE|WS_CHILD|WS_BORDER|WS_VSCROLL|LBS_NOTIFY, 10,110,530,200, hwnd,NULL,NULL,NULL);
             hwndProgress = CreateWindowEx(0, PROGRESS_CLASS, NULL, WS_CHILD|WS_VISIBLE, 10,320,530,20, hwnd,NULL,NULL,NULL);
         } break;
 
         case WM_COMMAND: {
-            if (LOWORD(wParam) == 1) { // Parcourir
+            if (LOWORD(wParam) == 1) { 
                 BROWSEINFO bi = {0};
                 bi.lpszTitle = "Selectionnez un dossier";
                 LPITEMIDLIST pidl = SHBrowseForFolder(&bi);
@@ -103,7 +132,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         SetWindowText(hwndPath, path);
                     CoTaskMemFree(pidl);
                 }
-            } else if (LOWORD(wParam) == 2 || LOWORD(wParam) == 3) { // Chiffrer / Dechiffrer
+            } else if (LOWORD(wParam) == 2 || LOWORD(wParam) == 3) { 
                 char folder[4096];
                 GetWindowText(hwndPath, folder, 4096);
                 if (folder[0] == '\0') break;
@@ -123,6 +152,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 memcpy(params->iv, "1234567890123456", 16);
 
                 CreateThread(NULL, 0, process_thread, params, 0, NULL);
+            } else if (LOWORD(wParam) == 4) { // Bouton Aide
+                print_help();
+            } else if (LOWORD(wParam) == 5) { // Bouton Version
+                print_version();
             }
         } break;
 
@@ -132,6 +165,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance,LPSTR lpCmdLine,int nCmdShow) {
+    // Parser les arguments de ligne de commande
+    int argc;
+    LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+
+    if (argc > 1) {
+        char arg[256];
+        WideCharToMultiByte(CP_ACP, 0, argv[1], -1, arg, sizeof(arg), NULL, NULL);
+
+        if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
+            print_help();
+            LocalFree(argv);
+            return 0;
+        } else if (strcmp(arg, "-v") == 0 || strcmp(arg, "--version") == 0) {
+            print_version();
+            LocalFree(argv);
+            return 0;
+        }
+    }
+
+    LocalFree(argv);
+
+    // Si pas d'options, lancer l'interface graphique
     WNDCLASS wc = {0};
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
